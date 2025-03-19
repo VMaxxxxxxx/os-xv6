@@ -118,7 +118,7 @@ sys_trace(void)
 uint64
 sys_sysinfo(void)
 {
-  struct sysinfo info;
+  struct sysinfo info;    // 从用户态读入一个指针，作为存放sysinfo结构的缓冲区
   kama_freebytes(&info.freemem);  // 获取空闲内存
   kama_procnum(&info.nproc);      // 获取进程数量
 

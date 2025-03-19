@@ -706,6 +706,7 @@ kama_procnum(uint64* dst)
   struct proc* p;
   for(p = proc; p < &proc[NPROC]; p++)
   {
+    //  不需要加锁，因为只需要读取进程列表，不需要写
     if(p->state != UNUSED)
     {
       (*dst)++;
