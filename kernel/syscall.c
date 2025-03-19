@@ -105,6 +105,7 @@ extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
 extern uint64 sys_trace(void);    // 全局声明trace系统调用处理函数
+extern uint64 sys_sysinfo(void);    //全局声明sysinfo系统调用处理函数
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -129,6 +130,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
 [SYS_trace]   sys_trace,    // 系统调用号和处理函数关联，注册
+[SYS_sysinfo] sys_sysinfo,  //  系统调用映射：系统调用号：函数指针名
+
 };    //  函数指针数组：每个元素都是指向返回uint64且不接受参数的函数的指针，并根据[]索引数组
 
 
