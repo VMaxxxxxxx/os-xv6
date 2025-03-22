@@ -34,12 +34,16 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      // char *pa = kalloc();
+      // if(pa == 0)
+      //   panic("kalloc");
+      // uint64 va = KSTACK((int) (p - proc));
+      // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      // p->kstack = va;
+
+      //  全局共享的内核栈分配代码
+      //  但现在有了进程各自独立的内核页表，就只需要访问各自的内核栈就行
+      // 改成创建进程的时候，创建独立的内核页表，再利用其中的固定位置，创建和映射进程独立的内核栈
   }
   kvminithart();
 }
@@ -121,6 +125,19 @@ found:
     return 0;
   }
 
+  // 为新进程创建独立的内核页表，然后将内核所需的各种映射添加到新的页表上
+  p->kama_kernelpgtbl = kama_kvminit_newpgtbl();
+
+  //  分配一个物理页，作为新内核的内核栈使用
+  char* pa = kalloc();
+  if(pa == 0)
+  {
+    panic("kallo");
+  }
+  uint64 va = KSTACK((int)0); //  将内核栈映射到固定的逻辑地址上
+  kvmmap(p->kama_kernelpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W); //  将内核页表副本的物理地址和逻辑地址进行映射
+  p->kstack = va; //  映射完，记录内核栈的虚拟地址，这样在进入内核的时候使用的是同样的虚拟地址了，但物理地址是不同的，独立的
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -149,6 +166,20 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  
+  // 进程结束的时候，需要释放分配的内核页表副本，以及内核栈
+  //  先释放内核栈
+  void* kstack_pa = (void*)kvmpa(p->kama_kernelpgtbl, p->kstack);
+  kfree(kstack_pa);
+  p->kstack = 0;
+
+  //  再释放内核页表副本，但不能使用proc_freepagetable，因为不仅会释放页表本身，也会把页表内所有的叶子节点对应的物理页也释放掉
+  //  这会导致内核运行所需要的关键物理页被释放，造成内核崩溃
+
+  //  递归释放进程独享的页表，释放页表本身所占的空间，但不释放页表指向的物理页
+  kama_kvm_free_kernelpgtbl(p->kama_kernelpgtbl);
+  p->kama_kernelpgtbl = 0;
+
   p->state = UNUSED;
 }
 
@@ -473,7 +504,17 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // 之前仍然使用全局的内核进程页表
+        //  现在调度器将CPU交给进程执行前，加载内核页表到SATP寄存器，切换到该进程对应的内核页表
+        w_satp(MAKE_SATP(p->kama_kernelpgtbl));
+        sfence_vma(); //  清除快表缓存，刷新TLB缓存，确保地址转换表的更改生效
+        
+        //  调度，执行进程
         swtch(&c->context, &p->context);
+
+        //  切换回全局内核页表
+        kvminithart();
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.

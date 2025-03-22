@@ -18,6 +18,7 @@ extern char trampoline[]; // trampoline.S
 /*
  * create a direct-map page table for the kernel.
  */
+/*
 void
 kvminit()
 {
@@ -45,6 +46,67 @@ kvminit()
   // map the trampoline for trap entry/exit to
   // the highest virtual address in the kernel.
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+}
+*/
+//  kvminit原本只为全局内核页表 kernel_pagetable添加映射
+//  但现在其他进程也可以创建独享的内核页表
+
+/*
+  * create a direct-map page table for the kernel.
+*/
+void
+kvminit()
+{
+  //  全局内核页表仍然使用kvminit函数来初始化
+    kernel_pagetable = kama_kvminit_newpgtbl();
+}
+
+void
+kama_kvm_map_pagetable(pagetable_t pgtbl)
+{
+  // 参照xv6对全局内核页表的映射，添加传入的普通进程对内核页表副本的直接映射
+  // 但是既然传入了所属页表，那也修改kvmmap和kvmpa函数，使其不再局限于全局的内核页表的映射的翻译
+
+  // uart registers
+  //  kvmmap(UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  kvmmap(pgtbl, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  //  kvmmap(VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  kvmmap(pgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  //  kvmmap(CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  kvmmap(pgtbl, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  //  kvmmap(PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  kvmmap(pgtbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  //  kvmmap(KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  kvmmap(pgtbl, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+
+  // map kernel data and the physical RAM we'll make use of.
+  //  kvmmap((uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  kvmmap(pgtbl, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  // kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+  kvmmap(pgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+  
+}
+
+pagetable_t
+kama_kvminit_newpgtbl()
+{
+  pagetable_t pgtbl = (pagetable_t) kalloc(); //分配一个物理页，返回的是页表的起始地址
+  memset(pgtbl, 0, PGSIZE); //  从页表起始地址开始，将整页内容进行清零
+
+  kama_kvm_map_pagetable(pgtbl);  //  将新的页表与内核的虚拟地址空间进行映射
+  
+  return pgtbl;
 }
 
 // Switch h/w page table register to the kernel's page table,
@@ -114,17 +176,29 @@ walkaddr(pagetable_t pagetable, uint64 va)
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
+/*
 void
 kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 {
   if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
     panic("kvmmap");
 }
+*/
+//  添加第一个参数,使其能够针对传入的内核页表种类做映射
+void
+kvmmap(pagetable_t pgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(pgtbl, va, sz, pa, perm) != 0)  // 修改传入的页表，不再是全局的内核页表
+  {
+    panic("kvmmap");
+  }
+}
 
 // translate a kernel virtual address to
 // a physical address. only needed for
 // addresses on the stack.
 // assumes va is page aligned.
+/*
 uint64
 kvmpa(uint64 va)
 {
@@ -139,6 +213,26 @@ kvmpa(uint64 va)
     panic("kvmpa");
   pa = PTE2PA(*pte);
   return pa+off;
+}
+*/
+//  添加第一个参数，像kvmmap一样，能够针对传入的内核页表做虚拟地址到物理地址的翻译
+uint64
+kvmpa(pagetable_t pgtbl, uint64 va)
+{
+  uint64 off = va % PGSIZE; //  低12的偏移，整好是一页
+  pte_t *pte;
+  uint64 pa;
+  pte = walk(pgtbl, va, 0);   //  页表遍历函数，查找虚拟地址va对应的pte地址，此处修改传入的页表，不再是全局的内核页表
+  if(pte == 0)
+  {
+    panic("kvmpa");
+  }
+  if((*pte & PTE_V) == 0)
+  {
+    panic("kvmpa");
+  }
+  pa = PTE2PA(*pte);  // 在确定页表项有效后再返回映射的物理地址
+  return pa + off;
 }
 
 // Create PTEs for virtual addresses starting at va that refer to
@@ -478,4 +572,24 @@ int kama_vmprint(pagetable_t pagetable)
 {
   printf("page table %p\n", pagetable);
   return kama_pgtblprint(pagetable, 0);
+}
+
+
+//  递归释放一个内核页表中的所有映射，但是不能释放其指向的物理页
+
+void
+kama_kvm_free_kernelpgtbl(pagetable_t pagetable)
+{
+  for(int i = 0; i < 512; ++i)
+  {   //  遍历页表项
+    pte_t pte = pagetable[i];
+    uint64 child = PTE2PA(pte);   //  转换成下一级的物理地址
+    if((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0)
+    {
+      // 对有效的非叶子节点，即中间层的页表项，进行向下递归
+      kama_kvm_free_kernelpgtbl((pagetable_t)child);
+      pagetable[i] = 0;
+    }
+  }
+  kfree((void*)pagetable);  // 释放页表项的映射
 }
