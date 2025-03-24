@@ -185,6 +185,14 @@ int             copyinstr(pagetable_t, char *, uint64, uint64);
 int             kama_vmprint(pagetable_t pagetable);    //打印页表内容函数
 pagetable_t     kama_kvminit_newpgtbl();    //创建新的页表并初始化映射
 void            kama_kvm_free_kernelpgtbl(pagetable_t pagetable);   //  递归释放整个页表树，但不会释放数据页 
+int             kama_kvmcopymappings(pagetable_t, pagetable_t, uint64, uint64); //  复制页表
+uint64          kama_kvmdealloc(pagetable_t, uint64, uint64);  // 缩减内存，用于内核页表和用户页表内存映射的同步
+
+//  加入对vmcopyin.c的函数声明
+//  vmcopyin.c
+int             copyin_new(pagetable_t, char*, uint64, uint64);
+int             copyinstr_new(pagetable_t, char*, uint64, uint64);
+
 
 // plic.c
 void            plicinit(void);
