@@ -352,3 +352,12 @@ sfence_vma()
 
 typedef uint64 pte_t;
 typedef uint64 *pagetable_t; // 512 PTEs
+
+
+// 获取当前函数的帧指针，fp，frame pointer
+static inline uint64 r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x)); //嵌入汇编代码，并指示编译器这段汇编代码不会被优化掉，必须原样执行
+  return x;
+} //静态内联函数

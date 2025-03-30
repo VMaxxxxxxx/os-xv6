@@ -132,3 +132,18 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+
+// 遍历帧指针，来打印函数地址
+
+void kama_backtrace()
+{
+  uint64 fp = r_fp(); //获取函数帧指针
+  printf("backtrace:\n");
+  while(PGROUNDDOWN(fp) != PGROUNDUP(fp))
+  {
+    uint64 ra = *(uint64*)(fp - 8); //当前函数的返回地址
+    printf("%p\n", ra);
+    fp = *(uint64*)(fp - 16); //上一个帧指针
+  }
+}

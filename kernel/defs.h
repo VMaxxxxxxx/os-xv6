@@ -80,6 +80,7 @@ int             pipewrite(struct pipe*, uint64, int);
 void            printf(char*, ...);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
+void            kama_backtrace();   //调用栈函数声明
 
 // proc.c
 int             cpuid(void);
