@@ -76,9 +76,23 @@ usertrap(void)
   if(p->killed)
     exit(-1);
 
-  // give up the CPU if this is a timer interrupt.
+  // // give up the CPU if this is a timer interrupt.
+  // if(which_dev == 2)
+  //   yield();
+
   if(which_dev == 2)
+  {
+    if(p->alarm_interval != 0 && --p->alarm_ticks <= 0 && p->alarm_goingoff == 0)
+    {
+      //  是否设置了时钟（没有禁用），时钟倒计时是否结束，没有其他时钟在运行
+      //  如果一个时钟到期时，有一个时钟处理函数在运行，就会推迟原处理函数运行完成后的下一个tick才出发这次时钟
+      p->alarm_ticks = p->alarm_interval;           //  重置时钟倒计时
+      *p->alarm_trapframe = *p->trapframe;          //  保存当前进程陷阱帧
+      p->trapframe->epc = (uint64)p->alarm_handler; //  跳转到时钟回调函数
+      p->alarm_goingoff = 1;                        //  标记当前已经有时钟正在运行
+    }
     yield();
+  }
 
   usertrapret();
 }
@@ -218,3 +232,22 @@ devintr()
   }
 }
 
+
+//  设置进程中 时钟的相关属性
+int sigalarm(int ticks, void(*handler)())
+{
+  struct proc* p = myproc();
+  p->alarm_interval = ticks;
+  p->alarm_handler = handler;
+  p->alarm_ticks = ticks;
+  return 0;
+}
+
+// 将进程恢复到alarm中断之前的状态
+int sigreturn()
+{
+  struct proc* p = myproc();
+  *p->trapframe = *p->alarm_trapframe;
+  p->alarm_goingoff = 0;
+  return 0;
+}

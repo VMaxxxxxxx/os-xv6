@@ -96,3 +96,29 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+//  实现sigalarm和sigreturn的系统调用
+
+uint64 sys_sigalarm(void)
+{
+  int n;
+  uint64 fn;
+
+  //  获取前两个参数
+  if(argint(0, &n) < 0)
+  {
+    return -1;
+  }
+  if(argaddr(1, &fn) < 0)
+  {
+    return -1;
+  }
+
+  return sigalarm(n, (void(*)())(fn));  //  调用并返回
+}
+
+uint64 sys_sigreturn(void)
+{
+  return sigreturn();
+}

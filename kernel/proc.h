@@ -103,4 +103,11 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // 时钟相关的字段
+  int alarm_interval;                 //  时钟周期
+  void(*alarm_handler)();             //  时钟回调处理函数
+  int alarm_ticks;                    //  当前时钟信号数
+  struct trapframe* alarm_trapframe;  //  时钟中断时刻进程的陷阱帧，用于中断处理完成之后，恢复进程的正常执行
+  int alarm_goingoff;                 //  是否已经有一个时钟回调正在执行且还未返回，防止在alarm_handler中途闹钟到期再次调用，导致陷阱帧被覆盖
 };
