@@ -67,6 +67,23 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } // 对 缺页异常 进程单独的处理，尝试做延迟分配
+  else if(r_scause() == 13 || r_scause() == 15)
+  {
+    uint64 fault_va = r_stval();  // 记录引发缺页异常的虚拟地址
+    char* pa = 0;                 // 后续会分配一页的物理内存
+    // 先判断这个缺页的虚拟地址是否在进程的栈空间中，是否是合法访问
+    if(PGROUNDUP(p->trapframe->sp) - 1 < fault_va && fault_va < p->sz && (pa = kalloc()) != 0)
+    {
+      memset(pa, 0, PGSIZE);  // 将分配的物理页清零初始化，防止有脏数据
+      if(mappages(p->pagetable, PGROUNDDOWN(fault_va), PGSIZE, (uint64)pa, PTE_R | PTE_W | PTE_X | PTE_U) != 0)
+      {
+        // 将分配的物理页，映射到页表中，虚拟地址取页对齐。并设置权限，如果映射失败，则说明内核发生严重错误，释放分配的物理页，标记进程杀死
+        printf("lazy alloc: failed to map page\n");
+        kfree(pa);
+        p->killed = 1;
+      }
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
