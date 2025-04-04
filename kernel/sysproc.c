@@ -38,6 +38,7 @@ sys_wait(void)
   return wait(p);
 }
 
+// eliminate 实验是实现惰性分配的第一步，就只增加size，而不做实际分配
 uint64
 sys_sbrk(void)
 {
@@ -47,8 +48,26 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  if(growproc(n) < 0)
+  // if(growproc(n) < 0)
+  //   return -1;
+  // 不调用growproc()做实际的分配
+
+  struct proc* p = myproc();
+  if(n > 0)
+  {
+    // n 为正，惰性分配，仅需要改变sz字段
+    p->sz += n;
+  }
+  else if(p->sz + n > 0)
+  {
+    // n <= 0 ，代表减少内存，需要马上执行，并检查减少内存是否属于完全清空
+    p->sz = uvmdealloc(p->pagetable, p->sz, p->sz + n);
+  }
+  else
+  {
+    // 完全清空内存，属于错误。
     return -1;
+  }
   return addr;
 }
 
