@@ -9,6 +9,14 @@
 #include "riscv.h"
 #include "defs.h"
 
+#define PA2PGREF_ID(p) (((p) - KERNBASE) / PGSIZE)  // 由物理地址获取物理页id
+#define PGREF_MAX_ENTRIES PA2PGREF_ID(PHYSTOP)      //物理页数上限
+
+int pageref[PGREF_MAX_ENTRIES];  // 用于每个物理页的 引用数 数组（pageref的i个元素，代表第i个物理页的引用数）
+struct spinlock pgreflock;  //  用于pageref数组的锁，防止竞态条件引起的内存泄露
+
+#define PA2PGREF(p) pageref[PA2PGREF_ID((uint64)(p))]   // 获取地址对应物理页的引用数
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -27,6 +35,7 @@ void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&pgreflock, "pgref");  // 初始化引用数的锁
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -51,15 +60,30 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
+  // 当页面的引用数<=0时，需要真正释放页面了
+  acquire(&pgreflock);
+  if(--PA2PGREF(pa) <= 0)
+  {
+    // fill with junk to catch dangling refs.
+    memset(pa, 1, PGSIZE);
 
-  r = (struct run*)pa;
+    r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+    acquire(&kmem.lock);
+    r->next = kmem.freelist;
+    kmem.freelist = r;
+    release(&kmem.lock);
+  }
+  release(&pgreflock);  // 释放引用数数组的锁
+  // // Fill with junk to catch dangling refs.
+  // memset(pa, 1, PGSIZE);
+
+  // r = (struct run*)pa;
+
+  // acquire(&kmem.lock);
+  // r->next = kmem.freelist;
+  // kmem.freelist = r;
+  // release(&kmem.lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -76,7 +100,51 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
+  // if(r)
+  //   memset((char*)r, 5, PGSIZE); // fill with junk
   if(r)
-    memset((char*)r, 5, PGSIZE); // fill with junk
+  {
+    memset((char*)r, 5, PGSIZE);   // fill with junk
+    PA2PGREF(r) = 1;  // 新分配一个物理页，引用数为1，刚分配的页还没映射，不会有进程使用，不用加锁。
+  }
   return (void*)r;
+}
+
+// 物理页引用数+1
+void kama_krefpage(void* pa)
+{
+  // 对引用数数组加锁，然后修改引用数，然后释放锁
+  acquire(&pgreflock);
+  PA2PGREF(pa)++;
+  release(&pgreflock);
+}
+
+// 写时复制一个新的物理地址，然后返回
+// 如果该物理页的引用数>1，将其引用数-1，并分配一个新的物理页返回
+// 如果引用数<=1，那么无需操作，直接返回这个物理页
+void* kama_kcopy_n_deref(void* pa)
+{
+  acquire(&pgreflock);
+
+  // 当前物理页的引用数为1，无需分配新的物理页
+  if(PA2PGREF(pa) <= 1)
+  {
+    release(&pgreflock);
+    return pa;
+  }
+  // 分配新的物理页，并把旧物理页中的数据复制到新页中
+  uint64 newpa = (uint64)kalloc();
+  if(newpa == 0)
+  {
+    // 内存不足
+    release(&pgreflock);
+    return 0;
+  }
+  memmove((void*)newpa, (void*)pa, PGSIZE);
+
+  // 旧页的引用数-1
+  PA2PGREF(pa)--;
+
+  release(&pgreflock);
+  return (void*)newpa;
 }

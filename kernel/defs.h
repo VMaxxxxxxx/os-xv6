@@ -63,6 +63,9 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+void            kama_krefpage(void*); // 将传入参数物理页的引用数+1
+void*           kama_kcopy_n_deref(void*); // 复制一个新的物理页返回
+
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -171,6 +174,8 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+int             kama_uvmcheckcowpage(uint64);   // 检查这个地址对应的页是否是cow页
+int             kama_uvmcowcopy(uint64);    // 复制一个新页，创建映射，修改标志位
 
 // plic.c
 void            plicinit(void);
