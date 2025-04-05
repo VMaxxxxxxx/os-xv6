@@ -171,6 +171,8 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+int             kama_uvmshouldallocate(uint64); // 加入对是否能够分配物理页的判断
+void            kama_uvmlazyallocate(uint64);   // 实际分配物理页，并做映射
 
 // plic.c
 void            plicinit(void);
