@@ -30,7 +30,27 @@ barrier()
   // Block until all threads have called barrier() and
   // then increment bstate.round.
   //
-  
+  // 考虑到：线程1进入barrier之后，bstate中的nthread + 1， 但此时没有达到全局的nthread
+  // 线程1 刚要进入睡眠，此时线程2 进入了barrier， 达到了全局的nthread，调用pthread_cond_wait来唤醒所有进程
+  // 而此时线程1 才进入睡眠，导致线程1 没被唤醒
+  // 因此，在bstate中的nthread + 1 到调用 pthread_cond_wait来进入睡眠，这个过程应该上锁
+  // pthread_cond_wait 会释放当前锁，避免其他线程拿不到锁
+  pthread_mutex_lock(&bstate.barrier_mutex);
+  if(++bstate.nthread < nthread)
+  {
+    // 没有达到全局的nthread，睡眠
+    // 函数原型解释：阻塞当前进程，并释放互斥锁,等待条件变量被触发
+    pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
+  }
+  else
+  {
+    // 达到全局的nthread，重置，释放
+    bstate.nthread = 0;
+    bstate.round++;
+    // 函数原型解释：唤醒所有等待条件变量的线程
+    pthread_cond_broadcast(&bstate.barrier_cond);
+  }
+  pthread_mutex_unlock(&bstate.barrier_mutex);
 }
 
 static void *
