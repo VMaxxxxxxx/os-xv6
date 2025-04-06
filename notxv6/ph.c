@@ -8,6 +8,16 @@
 #define NBUCKET 5
 #define NKEYS 100000
 
+// pthread_mutex_t lock; // 声明一个线程锁，在并发写共享数据的地方加锁
+// 对线程的put操作进行加锁，每个时刻只能有一个线程执行put操作，这退化成了单线程
+// 因为上锁、释放锁、竞争锁都是有开销的，因此比单线程的性能更低
+
+// 多线程提升效率的一个做法：降低锁的粒度，减少加锁的范围
+// 不同的散列桶put操作不会互相影响，同一时刻操作不同散列桶不会造成线程安全问题
+// 因此只给散列桶加锁，降低了锁的粒度，又保证了不同的线程不会同时操作同一个散列桶
+// 取消上面的线程锁，改成散列桶数量大小的锁类型的数组，即给每个散列桶声明一把锁
+pthread_mutex_t lock[NBUCKET];
+
 struct entry {
   int key;
   int value;
@@ -38,7 +48,13 @@ insert(int key, int value, struct entry **p, struct entry *n)
 static 
 void put(int key, int value)
 {
+
+  // 加线程锁
+  // pthread_mutex_lock(&lock);
+
   int i = key % NBUCKET;
+
+  pthread_mutex_lock(&lock[i]);   // 加散列桶的锁
 
   // is the key already present?
   struct entry *e = 0;
@@ -53,19 +69,32 @@ void put(int key, int value)
     // the new is new.
     insert(key, value, &table[i], table[i]);
   }
+
+  // pthread_mutex_unlock(&lock);
+  pthread_mutex_unlock(&lock[i]); //释放散列桶的锁
 }
 
 static struct entry*
 get(int key)
 {
+  // 加线程锁
+  // pthread_mutex_lock(&lock);
+
   int i = key % NBUCKET;
 
+  // 对散列桶上锁
+  pthread_mutex_lock(&lock[i]);
 
   struct entry *e = 0;
   for (e = table[i]; e != 0; e = e->next) {
     if (e->key == key) break;
   }
 
+  // 释放线程锁
+  // pthread_mutex_unlock(&lock);
+
+  // 释放散列桶的锁
+  pthread_mutex_unlock(&lock[i]);
   return e;
 }
 
@@ -102,6 +131,9 @@ main(int argc, char *argv[])
   pthread_t *tha;
   void *value;
   double t1, t0;
+  // pthread_mutex_init(&lock, NULL);  // 初始化锁
+  // 只需要在put操作之前，初始化散列桶的锁
+
 
   if (argc < 2) {
     fprintf(stderr, "Usage: %s nthreads\n", argv[0]);
@@ -113,6 +145,12 @@ main(int argc, char *argv[])
   assert(NKEYS % nthread == 0);
   for (int i = 0; i < NKEYS; i++) {
     keys[i] = random();
+  }
+
+  // 在put之前初始化锁
+  for(int i = 0; i < NBUCKET; ++i)
+  {
+    pthread_mutex_init(&lock[i], NULL);
   }
 
   //
