@@ -8,5 +8,8 @@ struct buf {
   struct buf *prev; // LRU cache list
   struct buf *next;
   uchar data[BSIZE];
+
+  // 用于跟踪LRU-buf
+  uint lastuse;
 };
 
