@@ -24,20 +24,34 @@ struct superblock {
 
 #define FSMAGIC 0x10203040
 
-#define NDIRECT 12
-#define NINDIRECT (BSIZE / sizeof(uint))
-#define MAXFILE (NDIRECT + NINDIRECT)
+// #define NDIRECT 12
+// #define NINDIRECT (BSIZE / sizeof(uint))
+// #define MAXFILE (NDIRECT + NINDIRECT)
 
-// On-disk inode structure
-struct dinode {
-  short type;           // File type
-  short major;          // Major device number (T_DEVICE only)
-  short minor;          // Minor device number (T_DEVICE only)
-  short nlink;          // Number of links to inode in file system
-  uint size;            // Size of file (bytes)
-  uint addrs[NDIRECT+1];   // Data block addresses
+// // On-disk inode structure
+// struct dinode {
+//   short type;           // File type
+//   short major;          // Major device number (T_DEVICE only)
+//   short minor;          // Minor device number (T_DEVICE only)
+//   short nlink;          // Number of links to inode in file system
+//   uint size;            // Size of file (bytes)
+//   uint addrs[NDIRECT+1];   // Data block addresses
+// };
+// 修改 inode 的结构，改成 11 个直接块、 1 个一级间接块、 1 个二级间接块
+#define NDIRECT 11  // 直接块
+#define NINDIRECT (BSIZE / sizeof(uint))  // 一级间接块数量
+#define MAXFILE (NDIRECT + NINDIRECT + NINDIRECT * NINDIRECT) // 二级间接块数量
+
+// inode structure
+struct dinode
+{
+  short type;   // 文件类型
+  short major;  // 主设备号
+  short minor;  // 次设备号
+  short nlink;  // inode的连接数
+  uint size;    // 文件大小
+  uint addrs[NDIRECT + 2]; // 0 - 10 直接索引  11： 一级间接索引  12：二级间接索引
 };
-
 // Inodes per block.
 #define IPB           (BSIZE / sizeof(struct dinode))
 
