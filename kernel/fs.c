@@ -421,6 +421,7 @@ bmap(struct inode *ip, uint bn)
     a = (uint*)bp->data;
     if((addr = a[bn / NINDIRECT]) == 0)
     {
+      // bn 处在二级索引中间级的第 bn / NINDIRECT 个索引处
       a[bn / NINDIRECT] = addr = balloc(ip->dev);
       log_write(bp);
     }
